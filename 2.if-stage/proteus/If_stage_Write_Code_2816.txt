@@ -1,0 +1,202 @@
+/*
+  AT28C16 WRITE + VERIFY (first 16 addresses only)
+  Writes data according to provided 16-address test table, then verifies.
+
+  Wiring (Arduino UNO -> AT28C16 PDIP):
+    Address:
+      D2 -> A0 (pin 8)
+      D3 -> A1 (pin 7)
+      D4 -> A2 (pin 6)
+      D5 -> A3 (pin 5)
+
+    Data:
+      D6  -> I/O0 (pin 9)
+      D7  -> I/O1 (pin 10)
+      D8  -> I/O2 (pin 11)
+      D9  -> I/O3 (pin 13)
+      D10 -> I/O4 (pin 14)
+      D11 -> I/O5 (pin 15)
+      D12 -> I/O6 (pin 16)
+      D13 -> I/O7 (pin 17)
+
+    Control:
+      A0 -> CE (pin 18)  [active LOW]
+      A1 -> OE (pin 20)  [active LOW]
+      A2 -> WE (pin 21)  [active LOW]
+
+  Tie A4..A10 to GND for addresses 0..15.
+*/
+
+const uint8_t addrPins[4] = {2, 3, 4, 5};                 // A0..A3
+const uint8_t dataPins[8] = {6, 7, 8, 9, 10, 11, 12, 13}; // I/O0..I/O7
+
+const uint8_t PIN_CE = A0;
+const uint8_t PIN_OE = A1;
+const uint8_t PIN_WE = A2;
+
+// Your 16-address ROM table:
+const uint8_t table[16] = {
+  0xCC, 0xAA, 0x55, 0xF0,
+  0x0F, 0x96, 0x69, 0xFF,
+  0x00, 0x81, 0x42, 0x24,
+  0x18, 0xC3, 0x3C, 0x87
+};
+
+void setAddress(uint8_t a) {
+  for (uint8_t i = 0; i < 4; i++) digitalWrite(addrPins[i], (a >> i) & 1);
+}
+
+void dataBusOutput(uint8_t v) {
+  for (uint8_t i = 0; i < 8; i++) {
+    pinMode(dataPins[i], OUTPUT);
+    digitalWrite(dataPins[i], (v >> i) & 1);
+  }
+}
+
+// IMPORTANT: set INPUT and ensure pullups OFF
+void dataBusInputNoPullups() {
+  for (uint8_t i = 0; i < 8; i++) {
+    pinMode(dataPins[i], INPUT);
+    digitalWrite(dataPins[i], LOW); // pull-up OFF
+  }
+}
+
+uint8_t readBus() {
+  uint8_t v = 0;
+  for (uint8_t i = 0; i < 8; i++) v |= (digitalRead(dataPins[i]) ? 1 : 0) << i;
+  return v;
+}
+
+uint8_t eepromRead(uint8_t addr) {
+  dataBusInputNoPullups();
+  setAddress(addr);
+
+  // Read state: CE=0, OE=0, WE=1
+  digitalWrite(PIN_WE, HIGH);
+  digitalWrite(PIN_CE, LOW);
+  digitalWrite(PIN_OE, LOW);
+
+  delayMicroseconds(3);
+  uint8_t v = readBus();
+
+  digitalWrite(PIN_OE, HIGH);
+  digitalWrite(PIN_CE, HIGH);
+  return v;
+}
+
+// Data polling: wait until I/O7 matches written bit7
+bool waitWriteComplete(uint8_t addr, uint8_t data, unsigned long timeout_ms = 30) {
+  const uint8_t expectedBit7 = (data >> 7) & 1;
+
+  dataBusInputNoPullups();
+  setAddress(addr);
+
+  unsigned long start = millis();
+  while (millis() - start < timeout_ms) {
+    digitalWrite(PIN_WE, HIGH);
+    digitalWrite(PIN_CE, LOW);
+    digitalWrite(PIN_OE, LOW);
+
+    delayMicroseconds(3);
+    uint8_t bit7 = digitalRead(dataPins[7]) ? 1 : 0;
+
+    digitalWrite(PIN_OE, HIGH);
+    digitalWrite(PIN_CE, HIGH);
+
+    if (bit7 == expectedBit7) return true;
+  }
+  return false;
+}
+
+bool eepromWrite(uint8_t addr, uint8_t data) {
+  // Write state: CE=0, OE=1, pulse WE low
+  digitalWrite(PIN_OE, HIGH); // outputs OFF during write
+  digitalWrite(PIN_WE, HIGH);
+  digitalWrite(PIN_CE, HIGH);
+
+  setAddress(addr);
+  dataBusOutput(data);
+
+  digitalWrite(PIN_CE, LOW);
+  delayMicroseconds(1);
+  digitalWrite(PIN_WE, LOW);
+  delayMicroseconds(2);
+  digitalWrite(PIN_WE, HIGH);
+  digitalWrite(PIN_CE, HIGH);
+
+  dataBusInputNoPullups();
+
+  if (!waitWriteComplete(addr, data, 30)) return false;
+
+  return (eepromRead(addr) == data);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  for (uint8_t i = 0; i < 4; i++) {
+    pinMode(addrPins[i], OUTPUT);
+    digitalWrite(addrPins[i], LOW);
+  }
+
+  pinMode(PIN_CE, OUTPUT);
+  pinMode(PIN_OE, OUTPUT);
+  pinMode(PIN_WE, OUTPUT);
+
+  // Safe idle
+  digitalWrite(PIN_CE, HIGH);
+  digitalWrite(PIN_OE, HIGH);
+  digitalWrite(PIN_WE, HIGH);
+
+  dataBusInputNoPullups();
+
+  Serial.println("Writing ROM table to addr 0..15 ...");
+
+  bool allOk = true;
+
+  for (uint8_t addr = 0; addr < 16; addr++) {
+    uint8_t data = table[addr];
+    bool ok = eepromWrite(addr, data);
+
+    Serial.print("Write 0x");
+    if (addr < 16) Serial.print("0");
+    Serial.print(addr, HEX);
+    Serial.print(" <- 0x");
+    if (data < 16) Serial.print("0");
+    Serial.print(data, HEX);
+    Serial.println(ok ? "  OK" : "  FAIL");
+
+    if (!ok) allOk = false;
+  }
+
+  Serial.println();
+  Serial.println("Verify pass:");
+
+  for (uint8_t addr = 0; addr < 16; addr++) {
+    uint8_t expected = table[addr];
+    uint8_t got = eepromRead(addr);
+
+    Serial.print("Addr 0x");
+    if (addr < 16) Serial.print("0");
+    Serial.print(addr, HEX);
+    Serial.print(" = 0x");
+    if (got < 16) Serial.print("0");
+    Serial.print(got, HEX);
+
+    if (got == expected) {
+      Serial.println("  OK");
+    } else {
+      Serial.print("  MISMATCH (expected 0x");
+      if (expected < 16) Serial.print("0");
+      Serial.print(expected, HEX);
+      Serial.println(")");
+      allOk = false;
+    }
+  }
+
+  Serial.println();
+  Serial.println(allOk ? "DONE: ROM table verified OK." : "DONE: Verification FAILED.");
+}
+
+void loop() {}

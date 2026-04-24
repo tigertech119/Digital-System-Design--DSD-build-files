@@ -1,0 +1,84 @@
+
+Summary of Implemented IF Stage
+
+In this project, a 1-bit / small-width Instruction Fetch (IF) stage was designed and implemented using standard digital ICs. The IF stage consists of a Program Counter (PC), PC increment unit (PC + 1 / PC + 4 concept), instruction memory, and clock generation circuit.
+
+The PC register was implemented using the 74LS174 Hex D Flip-Flop, which stores the current instruction address. The PC output is fed into a 74LS83 4-bit adder, where a fixed binary value is added to generate the next instruction address. The adder output is connected back to the PC input.
+
+For instruction storage, an AT28C16 EEPROM was used as instruction memory so that data remains stored even after power is removed. The EEPROM was programmed separately using an Arduino UNO R3, where instruction data was written address-by-address before hardware execution.
+
+A stable clock signal was generated using the NE555 timer IC. To handle timing and triggering issues of negative-edge-triggered flip-flops, a 74LS04 NOT gate was used to generate an inverted clock where required. All registers operate synchronously under the same clock control.
+
+The complete system was first verified in Proteus simulation (using SRAM for simulation compatibility) and then implemented in real hardware using EEPROM, ensuring correct instruction fetch operation.
+
+
+Problems Faced During Implementation
+
+74LS174 (D Flip-Flop – PC Register)
+
+Output did not update as expected due to negative-edge triggering.
+
+Simulation behavior differed from real hardware behavior.
+
+Required careful clock control and proper reset initialization.
+
+
+74LS83 (4-bit Adder)
+
+Incorrect PC increment occurred when carry and input lines were not properly tied.
+
+Needed constant binary input to ensure correct PC increment.
+
+
+NE555 Timer (Clock Generator)
+
+Clock frequency was initially too fast to observe operations.
+
+Continuous clock made memory writing difficult.
+
+Required tuning of resistor and capacitor values to slow down the clock.
+
+
+74LS04 (NOT Gate)
+
+Needed to generate an inverted clock to avoid race conditions.
+
+Helped separate PC update timing and instruction register timing.
+
+
+AT28C16 EEPROM (Instruction Memory)
+
+No simulation model available in Proteus.
+
+Required external programming using Arduino UNO.
+
+Incorrect wiring and floating address/data pins caused read mismatches initially.
+
+Proper control of CE̅, OE̅, and WE̅ was critical.
+
+
+Arduino UNO (EEPROM Programming)
+
+Pin conflicts (especially D13) caused incorrect data reads.
+
+Required careful timing and delays for EEPROM write cycles.
+
+Address and data line mapping had to be verified multiple times.
+
+
+Proteus Simulation
+
+EEPROM not supported, so SRAM was used instead.
+
+Simulation worked, but hardware introduced timing and noise issues.
+
+
+General Hardware Issues
+
+Floating pins caused unpredictable outputs.
+
+Clock synchronization was critical.
+
+Debugging required step-by-step verification of each module.
+
+
