@@ -1,0 +1,16 @@
+0000 - add
+0001 - subtnact
+0010 - multiply
+0011 - lett shifh
+0100 - right  shift
+0101 - rotate lett
+0110 -rotate right
+0111 - and
+1000 -or
+1001 - xor
+1010- xnor
+1011- nand
+1100-nor
+1101- gretaer than
+1110 - equal
+1111 - less than
